@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="FileFlow")
+from app.api.v1 import files
 
-@app.get("/")
-def root():
-    return {"message": "FileFlow API"}
+
+app = FastAPI(title="FileFlow")
+app.include_router(files.router, prefix="/api/v1")
