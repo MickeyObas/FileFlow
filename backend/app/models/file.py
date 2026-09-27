@@ -21,6 +21,8 @@ class File(Base):
 
     content_type: Mapped[str] = mapped_column(String(100))
 
+    size: Mapped[int] = mapped_column()
+
     status: Mapped[str] = mapped_column(
         String(50),
         default="uploaded",

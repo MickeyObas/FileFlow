@@ -2,7 +2,7 @@ from fileinput import FileInput
 from uuid import UUID
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile
 from sqlalchemy.orm import Session
 
 from app.schemas.file import FileCreate, FileOut
@@ -38,11 +38,10 @@ def get_files(db: DbSession):
 
 
 @router.post("/", response_model=FileOut)
-def upload_file(file_data: FileCreate, db: DbSession):
+def upload_file(uploaded_file: UploadFile, db: DbSession):
     return file_service.create_file(
         db,
-        original_filename=file_data.original_filename,
-        content_type=file_data.content_type
+        uploaded_file
     )
 
 
