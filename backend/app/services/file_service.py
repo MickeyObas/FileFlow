@@ -14,12 +14,14 @@ def get_file(db: Session, file_id: UUID) -> File | None:
     return db.get(File, file_id)
 
 
-def get_files(db: Session) -> list[File]:
-    return (
-        db.query(File)
-        .order_by(File.created_at.desc())
-        .all()
-    )
+def get_files(
+    db: Session,
+    status: FileStatus | None = None,
+) -> list[File]:
+    query = db.query(File)
+    if status is not None:
+        query = query.filter(File.status == status)
+    return query.order_by(File.created_at.desc()).all()
 
 
 def create_file(db: Session, uploaded_file: UploadFile) -> File:

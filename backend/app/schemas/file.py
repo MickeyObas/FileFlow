@@ -23,6 +23,7 @@ class FileUpdate(BaseModel):
 
 class FileOut(FileBase):
     id: UUID
+    size: int
     status: FileStatus
     created_at: datetime
 

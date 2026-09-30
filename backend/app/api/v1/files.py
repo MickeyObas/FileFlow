@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.file_status import FileStatus
 from app.schemas.file import FileOut
 from app.services import file_service
 
@@ -31,8 +32,8 @@ def get_file(file_id: UUID, db: DbSession):
 
 
 @router.get("/", response_model=list[FileOut])
-def get_files(db: DbSession):
-    return file_service.get_files(db)
+def get_files(db: DbSession, status: FileStatus | None = None):
+    return file_service.get_files(db, status=status)
 
 
 @router.post("/", response_model=FileOut)
