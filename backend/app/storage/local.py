@@ -2,38 +2,59 @@ from pathlib import Path
 from typing import BinaryIO
 from uuid import uuid4
 
+from app.core.config import settings
 from app.core.exceptions import FileSizeExceededError
 
-MAX_FILE_SIZE = 50 * 1024 * 1024
 STORAGE_DIR = Path("storage/files")
 CHUNK_SIZE = 1024 * 1024
 
 
-def generate_storage_key(filename: str) -> str:
-    extension = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
-    return f"{uuid4()}.{extension}"
+class LocalStorageBackend:
+    def __init__(
+        self,
+        *,
+        storage_dir: Path = STORAGE_DIR,
+        max_file_size: int | None = None,
+    ) -> None:
+        self._storage_dir = storage_dir
+        self.max_file_size = (
+            max_file_size
+            if max_file_size is not None
+            else settings.max_file_size_bytes
+        )
 
+    def generate_key(self, filename: str) -> str:
+        extension = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
+        return f"{uuid4()}.{extension}"
 
-def save_file(file: BinaryIO, storage_key: str) -> int:
-    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = STORAGE_DIR / storage_key
-    total = 0
+    def save(self, file: BinaryIO, storage_key: str) -> int:
+        self._storage_dir.mkdir(parents=True, exist_ok=True)
+        file_path = self._path(storage_key)
+        total = 0
 
-    try:
-        with file_path.open("wb") as destination:
-            while chunk := file.read(CHUNK_SIZE):
-                total += len(chunk)
-                if total > MAX_FILE_SIZE:
-                    raise FileSizeExceededError()
-                destination.write(chunk)
-    except FileSizeExceededError:
-        file_path.unlink(missing_ok=True)
-        raise
+        try:
+            with file_path.open("wb") as destination:
+                while chunk := file.read(CHUNK_SIZE):
+                    total += len(chunk)
+                    if total > self.max_file_size:
+                        raise FileSizeExceededError()
+                    destination.write(chunk)
+        except FileSizeExceededError:
+            file_path.unlink(missing_ok=True)
+            raise
 
-    return total
+        return total
 
+    def read(self, storage_key: str) -> BinaryIO:
+        return self._path(storage_key).open("rb")
 
-def delete_object(storage_key: str) -> None:
-    file_path = STORAGE_DIR / storage_key
-    if file_path.is_file():
-        file_path.unlink()
+    def delete(self, storage_key: str) -> None:
+        file_path = self._path(storage_key)
+        if file_path.is_file():
+            file_path.unlink()
+
+    def exists(self, storage_key: str) -> bool:
+        return self._path(storage_key).is_file()
+
+    def _path(self, storage_key: str) -> Path:
+        return self._storage_dir / storage_key
