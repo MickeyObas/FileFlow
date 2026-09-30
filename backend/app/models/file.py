@@ -1,10 +1,11 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.file_status import FileStatus
 
 
 class File(Base):
@@ -23,9 +24,9 @@ class File(Base):
 
     size: Mapped[int] = mapped_column()
 
-    status: Mapped[str] = mapped_column(
-        String(50),
-        default="uploaded",
+    status: Mapped[FileStatus] = mapped_column(
+        Enum(FileStatus, native_enum=False, length=50),
+        default=FileStatus.UPLOADED,
     )
 
     created_at: Mapped[datetime] = mapped_column(
