@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import FileSizeExceededError
 from app.db.session import get_db
-from app.schemas.file import FileOut
+from app.schemas.file import FileDetailOut
 from app.schemas.upload import UploadCreate, UploadOut
 from app.services import idempotency_service, upload_service
 from app.storage import get_storage_backend
@@ -28,13 +28,14 @@ def create_upload(
     db: DbSession,
     idempotency_key: IdempotencyKeyHeader = None,
 ):
-    return upload_service.create_upload(
+    session = upload_service.create_upload(
         db,
         original_filename=body.original_filename,
         content_type=body.content_type,
         expected_size=body.expected_size,
         idempotency_key=idempotency_service.normalize_key(idempotency_key),
     )
+    return UploadOut.from_session(session)
 
 
 @router.get("/{upload_id}", response_model=UploadOut)
@@ -45,7 +46,7 @@ def get_upload(upload_id: UUID, db: DbSession):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Upload not found",
         )
-    return session
+    return UploadOut.from_session(session)
 
 
 @router.put("/{upload_id}", response_model=UploadOut)
@@ -61,7 +62,8 @@ async def upload_body(upload_id: UUID, request: Request, db: DbSession):
     except FileSizeExceededError as exc:
         raise _file_too_large() from exc
 
-    return upload_service.record_body_write(db, session, bytes_written)
+    session = upload_service.record_body_write(db, session, bytes_written)
+    return UploadOut.from_session(session)
 
 
 @router.put("/{upload_id}/parts/{part_number}", response_model=UploadOut)
@@ -96,25 +98,32 @@ async def upload_part(
     except FileSizeExceededError as exc:
         raise _file_too_large() from exc
 
-    return upload_service.record_part_write(
+    session = upload_service.record_part_write(
         db,
         session,
         previous_size=previous_size,
         bytes_written=bytes_written,
     )
+    return UploadOut.from_session(session)
 
 
-@router.post("/{upload_id}/complete", response_model=FileOut)
+@router.post("/{upload_id}/complete", response_model=FileDetailOut)
 def complete_upload(
     upload_id: UUID,
     db: DbSession,
     idempotency_key: IdempotencyKeyHeader = None,
 ):
-    return upload_service.complete_upload(
+    from app.services import file_service
+
+    file = upload_service.complete_upload(
         db,
         upload_id,
         idempotency_key=idempotency_service.normalize_key(idempotency_key),
     )
+    row = file_service.get_file_with_job(db, file.id)
+    assert row is not None
+    file, job = row
+    return FileDetailOut.from_file(file, processing_job=job)
 
 
 async def _stream_request(request: Request, writer: StorageWriter) -> None:

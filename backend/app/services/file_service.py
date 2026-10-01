@@ -7,12 +7,28 @@ from app.core.config import settings
 from app.core.exceptions import FileSizeExceededError
 from app.models.file import File
 from app.models.file_status import FileStatus
+from app.models.processing_job import ProcessingJob
 from app.services import idempotency_service, job_service
 from app.storage import get_storage_backend
 
 
 def get_file(db: Session, file_id: UUID) -> File | None:
     return db.get(File, file_id)
+
+
+def get_file_with_job(
+    db: Session,
+    file_id: UUID,
+) -> tuple[File, ProcessingJob | None] | None:
+    row = (
+        db.query(File, ProcessingJob)
+        .outerjoin(ProcessingJob, ProcessingJob.file_id == File.id)
+        .filter(File.id == file_id)
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return row[0], row[1]
 
 
 def get_files(

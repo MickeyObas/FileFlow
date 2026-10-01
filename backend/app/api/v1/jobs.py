@@ -21,4 +21,4 @@ def get_job(job_id: UUID, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
-    return job
+    return JobOut.from_job(job)

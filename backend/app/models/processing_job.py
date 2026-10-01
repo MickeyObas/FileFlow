@@ -34,6 +34,10 @@ class ProcessingJob(Base):
 
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    progress_percent: Mapped[int] = mapped_column(Integer, default=0)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,

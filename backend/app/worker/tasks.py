@@ -10,6 +10,7 @@ from app.models.file import File
 from app.models.file_status import FileStatus
 from app.models.job_status import JobStatus
 from app.models.processing_job import ProcessingJob
+from app.models.processing_stage import ProcessingStage
 from app.storage import get_storage_backend
 
 
@@ -37,9 +38,22 @@ def _run_processing(db, processing_job_id: UUID) -> None:
         raise RuntimeError(f"File {job.file_id} not found for job {processing_job_id}")
 
     storage = get_storage_backend()
+
+    _update_job_progress(
+        db,
+        job,
+        stage=ProcessingStage.READING,
+        progress_percent=15,
+    )
     with storage.read(file.storage_key) as stream:
         raw = stream.read()
 
+    _update_job_progress(
+        db,
+        job,
+        stage=ProcessingStage.ANALYZING,
+        progress_percent=55,
+    )
     result = {
         "byte_size": len(raw),
         "content_type": file.content_type,
@@ -52,6 +66,12 @@ def _run_processing(db, processing_job_id: UUID) -> None:
         except UnicodeDecodeError:
             result["line_count"] = None
 
+    _update_job_progress(
+        db,
+        job,
+        stage=ProcessingStage.WRITING_RESULT,
+        progress_percent=85,
+    )
     payload = json.dumps(result)
     result_key = storage.generate_key(f"result-{file.id}.json")
     storage.save(BytesIO(payload.encode("utf-8")), result_key)
@@ -61,11 +81,27 @@ def _run_processing(db, processing_job_id: UUID) -> None:
     job.error_message = None
     job.result_payload = payload
     job.result_storage_key = result_key
+    job.stage = ProcessingStage.DONE
+    job.progress_percent = 100
     job.completed_at = now
     job.updated_at = now
 
     file.status = FileStatus.COMPLETED
     db.commit()
+
+
+def _update_job_progress(
+    db,
+    job: ProcessingJob,
+    *,
+    stage: ProcessingStage,
+    progress_percent: int,
+) -> None:
+    job.stage = stage
+    job.progress_percent = progress_percent
+    job.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(job)
 
 
 def _claim_job(db, processing_job_id: UUID) -> ProcessingJob | None:
@@ -88,6 +124,8 @@ def _claim_job(db, processing_job_id: UUID) -> ProcessingJob | None:
         job.status = JobStatus.PROCESSING
         job.started_at = job.started_at or now
         job.retry_count += 1
+        job.stage = ProcessingStage.READING
+        job.progress_percent = max(job.progress_percent, 5)
         if file is not None:
             file.status = FileStatus.PROCESSING
 

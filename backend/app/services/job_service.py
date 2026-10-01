@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.job_status import JobStatus
+from app.models.processing_stage import ProcessingStage
 from app.models.processing_job import ProcessingJob
 from app.worker.queue import get_queue
 from app.worker.tasks import process_file_job
@@ -34,6 +35,8 @@ def ensure_pending_job(db: Session, file_id: UUID) -> ProcessingJob:
         file_id=file_id,
         status=JobStatus.PENDING,
         retry_count=0,
+        stage=ProcessingStage.QUEUED,
+        progress_percent=0,
     )
     db.add(job)
     db.flush()
