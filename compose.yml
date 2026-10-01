@@ -9,9 +9,33 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://fileflow:fileflow@db:5432/fileflow
       STORAGE_BACKEND: local
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./backend
+    command: ["uv", "run", "python", "-m", "app.worker.run"]
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg://fileflow:fileflow@db:5432/fileflow
+      STORAGE_BACKEND: local
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
 
   db:
     image: postgres:18-alpine

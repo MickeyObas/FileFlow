@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.exceptions import FileSizeExceededError
 from app.models.file import File
 from app.models.file_status import FileStatus
-from app.services import idempotency_service
+from app.services import idempotency_service, job_service
 from app.storage import get_storage_backend
 
 
@@ -80,6 +80,8 @@ def create_file(
     db.add(file)
     db.flush()
 
+    processing_job = job_service.ensure_pending_job(db, file.id)
+
     if idempotency_key is not None:
         idempotency_service.attach_record(
             db,
@@ -114,6 +116,7 @@ def create_file(
         storage.delete(storage_key)
         raise
 
+    job_service.enqueue_if_pending(processing_job)
     db.refresh(file)
     return file
 

@@ -7,7 +7,7 @@ from app.core.exceptions import FileSizeExceededError
 from app.models.file import File
 from app.models.file_status import FileStatus
 from app.models.upload_session import UploadSession
-from app.services import idempotency_service
+from app.services import idempotency_service, job_service
 from app.services.file_service import validate_file
 from app.storage import get_storage_backend
 from app.storage.protocol import StorageBackend
@@ -251,6 +251,8 @@ def complete_upload(
     db.add(file)
     db.flush()
 
+    processing_job = job_service.ensure_pending_job(db, file.id)
+
     session.status = FileStatus.COMPLETED
     session.bytes_received = actual_size
     session.file_id = file.id
@@ -282,6 +284,7 @@ def complete_upload(
     else:
         db.commit()
 
+    job_service.enqueue_if_pending(processing_job)
     db.refresh(file)
     return file
 
