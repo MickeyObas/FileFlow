@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.exceptions import FileSizeExceededError
 from app.models.file import File
 from app.models.file_status import FileStatus
+from app.services import idempotency_service
 from app.storage import get_storage_backend
 
 
@@ -24,7 +25,12 @@ def get_files(
     return query.order_by(File.created_at.desc()).all()
 
 
-def create_file(db: Session, uploaded_file: UploadFile) -> File:
+def create_file(
+    db: Session,
+    uploaded_file: UploadFile,
+    *,
+    idempotency_key: str | None = None,
+) -> File:
     storage = get_storage_backend()
     filename = uploaded_file.filename or ""
     content_type = uploaded_file.content_type or ""
@@ -35,6 +41,23 @@ def create_file(db: Session, uploaded_file: UploadFile) -> File:
         file_size=uploaded_file.size,
         max_file_size=storage.max_file_size,
     )
+
+    request_fingerprint = idempotency_service.fingerprint_file_create(
+        filename=filename,
+        content_type=content_type,
+        file_size=uploaded_file.size,
+    )
+    if idempotency_key is not None:
+        replay_id = idempotency_service.replay_resource_id(
+            db,
+            key=idempotency_key,
+            operation=idempotency_service.FILE_CREATE,
+            request_fingerprint=request_fingerprint,
+        )
+        if replay_id is not None:
+            file = get_file(db, replay_id)
+            if file is not None:
+                return file
 
     storage_key = storage.generate_key(filename)
 
@@ -55,9 +78,43 @@ def create_file(db: Session, uploaded_file: UploadFile) -> File:
     )
 
     db.add(file)
-    db.commit()
-    db.refresh(file)
+    db.flush()
 
+    if idempotency_key is not None:
+        idempotency_service.attach_record(
+            db,
+            key=idempotency_key,
+            operation=idempotency_service.FILE_CREATE,
+            resource_id=file.id,
+            request_fingerprint=request_fingerprint,
+        )
+
+    try:
+        if idempotency_key is not None:
+            replay_id = idempotency_service.commit_or_replay_resource_id(
+                db,
+                key=idempotency_key,
+                operation=idempotency_service.FILE_CREATE,
+                request_fingerprint=request_fingerprint,
+            )
+            if replay_id is not None:
+                orphan = file
+                file = get_file(db, replay_id)
+                if file is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Idempotent file record is missing",
+                    )
+                storage.delete(orphan.storage_key)
+                return file
+        else:
+            db.commit()
+    except Exception:
+        db.rollback()
+        storage.delete(storage_key)
+        raise
+
+    db.refresh(file)
     return file
 
 

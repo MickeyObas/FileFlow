@@ -1,18 +1,19 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import FileSizeExceededError
 from app.db.session import get_db
 from app.schemas.file import FileOut
 from app.schemas.upload import UploadCreate, UploadOut
-from app.services import upload_service
+from app.services import idempotency_service, upload_service
 from app.storage import get_storage_backend
 from app.storage.protocol import StorageWriter
 
 DbSession = Annotated[Session, Depends(get_db)]
+IdempotencyKeyHeader = Annotated[str | None, Header(alias="Idempotency-Key")]
 
 
 router = APIRouter(
@@ -22,12 +23,17 @@ router = APIRouter(
 
 
 @router.post("/", response_model=UploadOut, status_code=status.HTTP_201_CREATED)
-def create_upload(body: UploadCreate, db: DbSession):
+def create_upload(
+    body: UploadCreate,
+    db: DbSession,
+    idempotency_key: IdempotencyKeyHeader = None,
+):
     return upload_service.create_upload(
         db,
         original_filename=body.original_filename,
         content_type=body.content_type,
         expected_size=body.expected_size,
+        idempotency_key=idempotency_service.normalize_key(idempotency_key),
     )
 
 
@@ -99,8 +105,16 @@ async def upload_part(
 
 
 @router.post("/{upload_id}/complete", response_model=FileOut)
-def complete_upload(upload_id: UUID, db: DbSession):
-    return upload_service.complete_upload(db, upload_id)
+def complete_upload(
+    upload_id: UUID,
+    db: DbSession,
+    idempotency_key: IdempotencyKeyHeader = None,
+):
+    return upload_service.complete_upload(
+        db,
+        upload_id,
+        idempotency_key=idempotency_service.normalize_key(idempotency_key),
+    )
 
 
 async def _stream_request(request: Request, writer: StorageWriter) -> None:

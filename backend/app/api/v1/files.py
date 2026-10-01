@@ -1,15 +1,16 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.file_status import FileStatus
 from app.schemas.file import FileOut
-from app.services import file_service
+from app.services import file_service, idempotency_service
 
 DbSession = Annotated[Session, Depends(get_db)]
+IdempotencyKeyHeader = Annotated[str | None, Header(alias="Idempotency-Key")]
 
 
 router = APIRouter(
@@ -37,8 +38,16 @@ def get_files(db: DbSession, status: FileStatus | None = None):
 
 
 @router.post("/", response_model=FileOut)
-def upload_file(uploaded_file: UploadFile, db: DbSession):
-    return file_service.create_file(db, uploaded_file)
+def upload_file(
+    uploaded_file: UploadFile,
+    db: DbSession,
+    idempotency_key: IdempotencyKeyHeader = None,
+):
+    return file_service.create_file(
+        db,
+        uploaded_file,
+        idempotency_key=idempotency_service.normalize_key(idempotency_key),
+    )
 
 
 @router.patch("/")
